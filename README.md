@@ -34,10 +34,10 @@ This Go program is designed to efficiently process a large dataset of temperatur
 
 `
 {unak=38.8/38.8/38.8, Yuncheng=35.0/35.0/35.0, Yuncos=40.1/40.1/40.1, ...}
-Processing completed in 286.686139ms
+Processing completed in 9m1.812065864s
 `
 
-YES, this really took only 2.87 s in go. Tested with a Ryzen 5800x3d
+The full data processing currently took 9m1.81s Tested with a Ryzen 5800x3d
 
 ## Customization
 
