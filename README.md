@@ -13,7 +13,7 @@ This Go program is designed to efficiently process a large dataset of temperatur
 
 Processing Time: 9m21s. Tested with a Ryzen 5800x3d
 
-## Recent Optimizations (v1.1.0)
+## v1.1.0
 
 The program has undergone several optimizations to improve its processing time:
 
@@ -23,6 +23,20 @@ The program has undergone several optimizations to improve its processing time:
 - **I/O Enhancements:** Adjusted file reading for larger chunks to reduce I/O bottlenecks.
 
 Processing Time: 6m53s. Tested with a Ryzen 5800x3d
+
+## v2.0.0
+
+Version 2.0 of the One Billion Row Challenge Processor introduces significant optimizations, leading to a substantial reduction in processing time. This release focuses on enhancing concurrency handling and reducing contention, along with other performance improvements.
+
+## Performance Enhancements
+
+- **Concurrent Map Implementation:** Introduced a sharded concurrent map to reduce lock contention. This allows for more efficient updates to the data structure in a multi-threaded environment.
+- **Hash-Based Sharding:** Implemented hash-based sharding for distributing data across multiple shards, further reducing the chance of lock conflicts.
+- **Optimized String Processing:** Refined the string handling logic to minimize overhead during file parsing.
+- **Buffer Size Adjustments:** Tuned the buffer sizes for channels to balance throughput and memory usage.
+- **Efficient Data Aggregation:** Streamlined the data aggregation process for improved efficiency.
+
+Processing Time 5m19s. Tested with a Ryzen 5800x3d
 
 ## Requirements
 
