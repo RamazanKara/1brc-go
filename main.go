@@ -16,93 +16,88 @@ type StationData struct {
 	min, max, sum, count float64
 }
 
+const numWorkers = 16 // Number of worker goroutines
+
 func main() {
-	startTime := time.Now()
+    startTime := time.Now()
+
 	// Adjust this to the path of your data file
-	fileName := "./data/weather_stations.csv"
+    fileName := "./data/measurements.txt"
+    stationData := processFile(fileName)
 
-	// Read and process file concurrently
-	stationData := processFileConcurrently(fileName)
+    printResults(stationData)
 
-	// Prepare output
-	outputResults(stationData)
-
-	duration := time.Since(startTime)
-	fmt.Printf("Processing completed in %s\n", duration)
+    duration := time.Since(startTime)
+    fmt.Printf("Processing completed in %s\n", duration)
 }
 
-func processFileConcurrently(fileName string) map[string]*StationData {
-	// Number of goroutines to use (can be tuned based on CPU cores)
-	const numGoroutines = 16
+func processFile(fileName string) map[string]*StationData {
+    linesCh := make(chan string, 1000)
 
-	// Channel for passing lines to processing goroutines
-	linesCh := make(chan string, numGoroutines)
+    var wg sync.WaitGroup
+    wg.Add(numWorkers)
 
-	// WaitGroup to wait for all processing goroutines to finish
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
+    stationData := make(map[string]*StationData)
+    var mu sync.Mutex
 
-	// Mutex for synchronizing access to the map
-	var mu sync.Mutex
+    // Worker pool pattern
+    for i := 0; i < numWorkers; i++ {
+        go worker(&wg, linesCh, stationData, &mu)
+    }
 
-	// Map to store the aggregated data
-	stationData := make(map[string]*StationData)
+    file, err := os.Open(fileName)
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
 
-	// Start processing goroutines
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for line := range linesCh {
-				// Process line and update data
-				parts := strings.Split(line, ";")
-				if len(parts) != 2 {
-					continue // Skip malformed lines
-				}
-				station, tempStr := parts[0], parts[1]
-				temp, err := strconv.ParseFloat(tempStr, 64)
-				if err != nil {
-					continue // Skip lines with invalid temperature
-				}
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        linesCh <- scanner.Text()
+    }
+    close(linesCh)
+    wg.Wait()
 
-				mu.Lock()
-				data, exists := stationData[station]
-				if !exists {
-					data = &StationData{min: temp, max: temp}
-					stationData[station] = data
-				}
-				data.sum += temp
-				data.count++
-				if temp < data.min {
-					data.min = temp
-				}
-				if temp > data.max {
-					data.max = temp
-				}
-				mu.Unlock()
-			}
-		}()
-	}
-
-	// Open file and buffer reading
-	file, err := os.Open(fileName)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		linesCh <- scanner.Text()
-	}
-	close(linesCh)
-
-	// Wait for all processing to be done
-	wg.Wait()
-
-	return stationData
+    return stationData
 }
 
-func outputResults(stationData map[string]*StationData) {
+func worker(wg *sync.WaitGroup, lines <-chan string, data map[string]*StationData, mu *sync.Mutex) {
+    defer wg.Done()
+    for line := range lines {
+        processLine(line, data, mu)
+    }
+}
+
+func processLine(line string, data map[string]*StationData, mu *sync.Mutex) {
+    parts := strings.Split(line, ";")
+    if len(parts) != 2 {
+        return
+    }
+
+    station, tempStr := parts[0], parts[1]
+    temp, err := strconv.ParseFloat(tempStr, 64)
+    if err != nil {
+        return
+    }
+
+    mu.Lock()
+    defer mu.Unlock()
+
+    if sd, exists := data[station]; exists {
+        sd.sum += temp
+        sd.count++
+        if temp < sd.min {
+            sd.min = temp
+        }
+        if temp > sd.max {
+            sd.max = temp
+        }
+    } else {
+        data[station] = &StationData{min: temp, max: temp, sum: temp, count: 1}
+    }
+}
+
+func printResults(stationData map[string]*StationData) {
 	// Extract keys and sort them
 	keys := make([]string, 0, len(stationData))
 	for key := range stationData {
