@@ -57,14 +57,13 @@ Processing Time: 1m3s. Tested with a Ryzen 5800x3d and 32 gigs Ram
 
 1. **Prepare the Data File:**
    - Ensure your data file is in the correct format: `<station_name>;<temperature_measurement>` per line.
-   - Place the data file in `./data/weather_stations.csv`, or update the file path in the program accordingly.
 
 2. **Compile the Program:**
    - Navigate to the directory containing the program.
    - Run `go build -o brc`.
 
 3. **Execute the Program:**
-   - Run the compiled binary: `./brc`.
+   - Run the compiled binary: `./brc <file-path>`.
    - The program will read the data file, process the information, and output the results to stdout.
    - The total processing time will be displayed at the end.
 
