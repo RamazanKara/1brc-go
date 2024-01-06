@@ -48,7 +48,7 @@ Processing Time: 6m53s. Tested with a Ryzen 5800x3d
 
 `
 {unak=38.8/38.8/38.8, Yuncheng=35.0/35.0/35.0, Yuncos=40.1/40.1/40.1, ...}
-Processing completed in 9m 21
+Processing completed in 9m1.812065864s
 `
 
 ## Customization
