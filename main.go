@@ -1,152 +1,210 @@
 package main
 
 import (
-    "bufio"
-    "fmt"
-    "hash/fnv"
-    "os"
-    "sort"
-    "strconv"
-    "strings"
-    "sync"
-    "time"
+	"bufio"
+	"fmt"
+	"hash/fnv"
+	"io"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
+// StationData holds the temperature data for a station.
 type StationData struct {
-    min, max, sum, count float64
+	min, max, sum, count float64
 }
 
-const numWorkers = 16
-const numShards = 32 // Number of shards in the concurrent map
+// Constants for the number of workers and shards.
+const (
+	numWorkers = 16
+	numShards  = 32
+)
 
-type ConcurrentMap struct {
-    shards [numShards]map[string]*StationData
-    locks  [numShards]*sync.Mutex
+// Shard contains a map of station data and a mutex for concurrent access.
+type Shard struct {
+	data map[string]*StationData
+	lock sync.Mutex
 }
 
-func NewConcurrentMap() *ConcurrentMap {
-    cMap := &ConcurrentMap{}
-    for i := 0; i < numShards; i++ {
-        cMap.shards[i] = make(map[string]*StationData)
-        cMap.locks[i] = &sync.Mutex{}
-    }
-    return cMap
+// StationMap holds shards for concurrent access to station data.
+type StationMap struct {
+	shards [numShards]*Shard
 }
 
-func (cMap *ConcurrentMap) GetShard(key string) (shard map[string]*StationData, lock *sync.Mutex) {
-    hash := fnv.New32()
-    hash.Write([]byte(key))
-    shardIndex := hash.Sum32() % numShards
-    return cMap.shards[shardIndex], cMap.locks[shardIndex]
+// NewStationMap initializes a new StationMap with the specified number of shards.
+func NewStationMap() *StationMap {
+	sm := &StationMap{}
+	for i := 0; i < numShards; i++ {
+		sm.shards[i] = &Shard{data: make(map[string]*StationData)}
+	}
+	return sm
 }
 
+// GetShard returns the shard for a given station key.
+func (sm *StationMap) GetShard(key string) *Shard {
+	hash := fnv.New32a()
+	hash.Write([]byte(key))
+	return sm.shards[hash.Sum32()%numShards]
+}
+
+// main is the entry point of the program.
 func main() {
-    startTime := time.Now()
+	startTime := time.Now()
 
-    if len(os.Args) < 2 {
-        fmt.Println("Usage: brc <file_path>")
-        os.Exit(1)
-    }
-    fileName := os.Args[1]
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: brc <file_path>")
+		os.Exit(1)
+	}
+	fileName := os.Args[1]
 
-    stationData := processFile(fileName)
+	stationMap := processFile(fileName)
 
-    printResults(stationData)
+	printResults(stationMap)
 
-    duration := time.Since(startTime)
-    fmt.Printf("Processing completed in %s\n", duration)
+	duration := time.Since(startTime)
+	fmt.Printf("Processing completed in %s\n", duration)
 }
 
-func processFile(fileName string) *ConcurrentMap {
-    linesCh := make(chan string, 1000)
-    var wg sync.WaitGroup
-    wg.Add(numWorkers)
+// processFile processes the file and returns a populated StationMap.
+func processFile(fileName string) *StationMap {
+	fileInfo, err := os.Stat(fileName)
+	if err != nil {
+		panic(err)
+	}
 
-    cMap := NewConcurrentMap()
+	fileSize := fileInfo.Size()
+	chunkSize := fileSize / int64(numWorkers)
+	var wg sync.WaitGroup
 
-    for i := 0; i < numWorkers; i++ {
-        go worker(&wg, linesCh, cMap)
-    }
+	sMap := NewStationMap()
 
-    file, err := os.Open(fileName)
-    if err != nil {
-        panic(err)
-    }
-    defer file.Close()
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(chunkStart int64) {
+			defer wg.Done()
+			processChunk(fileName, chunkStart, chunkSize, sMap)
+		}(int64(i) * chunkSize)
+	}
 
-    scanner := bufio.NewScanner(file)
-    for scanner.Scan() {
-        linesCh <- scanner.Text()
-    }
-    close(linesCh)
-    wg.Wait()
-
-    return cMap
+	wg.Wait()
+	return sMap
 }
 
-func worker(wg *sync.WaitGroup, lines <-chan string, cMap *ConcurrentMap) {
-    defer wg.Done()
-    for line := range lines {
-        processLine(line, cMap)
-    }
+// processChunk processes a chunk of the file.
+func processChunk(fileName string, offset, size int64, sMap *StationMap) {
+	file, err := os.Open(fileName)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	if _, err = file.Seek(offset, 0); err != nil {
+		panic(err)
+	}
+
+	reader := bufio.NewReader(file)
+	localMap := make(map[string]*StationData)
+
+	if offset != 0 {
+		_, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			panic(err)
+		}
+	}
+
+	var bytesRead int64
+	for {
+		line, err := reader.ReadString('\n')
+		bytesRead += int64(len(line))
+
+		if err == io.EOF || (offset+bytesRead) >= (offset+size) {
+			break
+		}
+		if err != nil {
+			panic(err)
+		}
+
+		processLine(strings.TrimSpace(line), localMap)
+	}
+
+	mergeLocalMap(localMap, sMap)
 }
 
-func processLine(line string, cMap *ConcurrentMap) {
-    parts := strings.Split(line, ";")
-    if len(parts) != 2 {
-        return
-    }
-
-    station, tempStr := parts[0], parts[1]
-    temp, err := strconv.ParseFloat(tempStr, 64)
-    if err != nil {
-        return
-    }
-
-    shard, lock := cMap.GetShard(station)
-    lock.Lock()
-    data, exists := shard[station]
-    if !exists {
-        data = &StationData{min: temp, max: temp, sum: temp, count: 1}
-        shard[station] = data
-    } else {
-        data.sum += temp
-        data.count++
-        if temp < data.min {
-            data.min = temp
-        }
-        if temp > data.max {
-            data.max = temp
-        }
-    }
-    lock.Unlock()
+// mergeLocalMap merges a local map of station data into the global StationMap.
+func mergeLocalMap(localMap map[string]*StationData, sm *StationMap) {
+	for station, data := range localMap {
+		shard := sm.GetShard(station)
+		shard.lock.Lock()
+		if sd, exists := shard.data[station]; exists {
+			sd.sum += data.sum
+			sd.count += data.count
+			sd.min = min(sd.min, data.min)
+			sd.max = max(sd.max, data.max)
+		} else {
+			shard.data[station] = data
+		}
+		shard.lock.Unlock()
+	}
 }
 
-func printResults(cMap *ConcurrentMap) {
-    // Consolidate data from shards
-    consolidatedData := make(map[string]*StationData)
-    for _, shard := range cMap.shards {
-        for station, data := range shard {
-            consolidatedData[station] = data
-        }
-    }
+// processLine processes a single line of input and updates the local map.
+func processLine(line string, localMap map[string]*StationData) {
+	parts := strings.SplitN(line, ";", 2)
+	if len(parts) != 2 {
+		return
+	}
 
-    // Sort the station names
-    keys := make([]string, 0, len(consolidatedData))
-    for station := range consolidatedData {
-        keys = append(keys, station)
-    }
-    sort.Strings(keys)
+	station, tempStr := parts[0], parts[1]
+	temp, err := strconv.ParseFloat(tempStr, 64)
+	if err != nil {
+		return
+	}
 
-    // Print sorted results
-    fmt.Print("{")
-    for i, key := range keys {
-        data := consolidatedData[key]
-        mean := data.sum / data.count
-        fmt.Printf("%s=%.1f/%.1f/%.1f", key, data.min, mean, data.max)
-        if i < len(keys)-1 {
-            fmt.Print(", ")
-        }
-    }
-    fmt.Println("}")
+	sd, exists := localMap[station]
+	if !exists {
+		sd = &StationData{min: temp, max: temp, sum: temp, count: 1}
+		localMap[station] = sd
+	} else {
+		sd.sum += temp
+		sd.count++
+		if temp < sd.min {
+			sd.min = temp
+		}
+		if temp > sd.max {
+			sd.max = temp
+		}
+	}
+}
+
+// printResults prints the aggregated results from the StationMap.
+func printResults(sm *StationMap) {
+	consolidatedData := make(map[string]*StationData)
+	for _, shard := range sm.shards {
+		shard.lock.Lock()
+		for station, data := range shard.data {
+			consolidatedData[station] = data
+		}
+		shard.lock.Unlock()
+	}
+
+	var keys []string
+	for k := range consolidatedData {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	fmt.Print("{")
+	for i, key := range keys {
+		sd := consolidatedData[key]
+		mean := sd.sum / sd.count
+		fmt.Printf("%s=%.1f/%.1f/%.1f", key, sd.min, mean, sd.max)
+		if i < len(keys)-1 {
+			fmt.Print(", ")
+		}
+	}
+	fmt.Println("}")
 }

@@ -38,6 +38,16 @@ Version 2.0 of the One Billion Row Challenge Processor introduces significant op
 
 Processing Time 5m19s. Tested with a Ryzen 5800x3d
 
+## v3.0.0
+
+## Key Enhancements
+
+- **Parallel File Processing:** Implemented an advanced parallel processing approach where the input file is divided into chunks and processed independently in parallel, drastically reducing I/O bottleneck.
+- **Optimized Memory Management:** Refined memory usage by processing data in chunks and employing local maps for data aggregation to reduce memory overhead.
+- **Improved Data Aggregation:** Enhanced the efficiency of data aggregation through the use of sharded data structures, minimizing lock contention.
+
+Processing Time: 1m3s. Tested with a Ryzen 5800x3d and 32 gigs Ram
+
 ## Requirements
 
 - Go Runtime ofc (1.21)
