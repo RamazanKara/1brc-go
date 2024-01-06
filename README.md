@@ -2,7 +2,7 @@
 
 ## Overview
 
-This Go program is designed to efficiently process a large dataset of temperature readings for different weather stations, as part of the One Billion Row Challenge. The program reads a text file containing temperature measurements, calculates the minimum, mean, and maximum temperature for each station, and outputs the results to standard output (stdout). Additionally, it measures and displays the total processing time.
+This Go program is designed to efficiently process a large dataset of temperature readings for different weather stations, as part of the [One Billion Row Challenge](https://github.com/gunnarmorling/1brc). The program reads a text file containing temperature measurements, calculates the minimum, mean, and maximum temperature for each station, and outputs the results to standard output (stdout). Additionally, it measures and displays the total processing time.
 
 ## Key Features
 
