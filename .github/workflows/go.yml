@@ -22,4 +22,4 @@ jobs:
         go-version: '1.21'
 
     - name: Run
-      run: go run ./main.go ./data/weather-stations.csv
+      run: go run ./main.go ./data/weather_stations.csv
