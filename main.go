@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"hash/fnv"
-	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -13,29 +12,28 @@ import (
 	"time"
 )
 
-// StationData holds the temperature data for a station.
+// StationData holds the temperature data for a specific station.
 type StationData struct {
 	min, max, sum, count float64
 }
 
-// Constants for the number of workers and shards.
 const (
-	numWorkers = 16
-	numShards  = 32
+	numWorkers = 16   // Number of concurrent workers
+	numShards  = 2048 // Number of shards for distributing data
 )
 
-// Shard contains a map of station data and a mutex for concurrent access.
+// Shard represents a concurrent-safe structure holding station data.
 type Shard struct {
 	data map[string]*StationData
 	lock sync.Mutex
 }
 
-// StationMap holds shards for concurrent access to station data.
+// StationMap aggregates multiple shards for station data.
 type StationMap struct {
 	shards [numShards]*Shard
 }
 
-// NewStationMap initializes a new StationMap with the specified number of shards.
+// NewStationMap initializes a StationMap with predefined shards.
 func NewStationMap() *StationMap {
 	sm := &StationMap{}
 	for i := 0; i < numShards; i++ {
@@ -44,49 +42,59 @@ func NewStationMap() *StationMap {
 	return sm
 }
 
-// GetShard returns the shard for a given station key.
+// GetShard returns a specific shard based on the station key.
 func (sm *StationMap) GetShard(key string) *Shard {
 	hash := fnv.New32a()
 	hash.Write([]byte(key))
 	return sm.shards[hash.Sum32()%numShards]
 }
 
-// main is the entry point of the program.
 func main() {
 	startTime := time.Now()
 
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: brc <file_path>")
+		fmt.Println("Usage: <program_name> <file_path>")
 		os.Exit(1)
 	}
 	fileName := os.Args[1]
 
 	stationMap := processFile(fileName)
-
 	printResults(stationMap)
 
 	duration := time.Since(startTime)
 	fmt.Printf("Processing completed in %s\n", duration)
 }
 
-// processFile processes the file and returns a populated StationMap.
+// processFile handles the file processing and returns a StationMap.
 func processFile(fileName string) *StationMap {
-	fileInfo, err := os.Stat(fileName)
+	file, err := os.Open(fileName)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
 	if err != nil {
 		panic(err)
 	}
 
 	fileSize := fileInfo.Size()
 	chunkSize := fileSize / int64(numWorkers)
-	var wg sync.WaitGroup
-
 	sMap := NewStationMap()
+	var wg sync.WaitGroup
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func(chunkStart int64) {
 			defer wg.Done()
-			processChunk(fileName, chunkStart, chunkSize, sMap)
+			f, err := os.Open(fileName)
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
+
+			actualStart, actualEnd := determineChunkBounds(f, chunkStart, chunkSize)
+			processChunk(f, actualStart, actualEnd, sMap)
 		}(int64(i) * chunkSize)
 	}
 
@@ -94,47 +102,63 @@ func processFile(fileName string) *StationMap {
 	return sMap
 }
 
-// processChunk processes a chunk of the file.
-func processChunk(fileName string, offset, size int64, sMap *StationMap) {
-	file, err := os.Open(fileName)
+// determineChunkBounds calculates the actual boundaries of a file chunk.
+func determineChunkBounds(f *os.File, chunkStart, chunkSize int64) (int64, int64) {
+	var actualStart, actualEnd int64
+
+	if chunkStart != 0 {
+		_, err := f.Seek(chunkStart, 0)
+		if err != nil {
+			panic(err)
+		}
+
+		scanner := bufio.NewScanner(f)
+		scanner.Scan()
+		actualStart = chunkStart + int64(len(scanner.Bytes())) + 1
+	}
+
+	_, err := f.Seek(chunkStart+chunkSize, 0)
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
 
-	if _, err = file.Seek(offset, 0); err != nil {
+	scanner := bufio.NewScanner(f)
+	scanner.Scan()
+	actualEnd = chunkStart + chunkSize + int64(len(scanner.Bytes())) + 1
+
+	return actualStart, actualEnd
+}
+
+// processChunk handles the processing of a specific file chunk.
+func processChunk(f *os.File, start, end int64, sMap *StationMap) {
+	_, err := f.Seek(start, 0)
+	if err != nil {
 		panic(err)
 	}
 
-	reader := bufio.NewReader(file)
+	scanner := bufio.NewScanner(f)
 	localMap := make(map[string]*StationData)
 
-	if offset != 0 {
-		_, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			panic(err)
-		}
-	}
+	var currentPos int64 = start
+	for scanner.Scan() {
+		line := scanner.Text()
+		currentPos += int64(len(line) + 1)
 
-	var bytesRead int64
-	for {
-		line, err := reader.ReadString('\n')
-		bytesRead += int64(len(line))
-
-		if err == io.EOF || (offset+bytesRead) >= (offset+size) {
+		if currentPos > end {
 			break
-		}
-		if err != nil {
-			panic(err)
 		}
 
 		processLine(strings.TrimSpace(line), localMap)
 	}
 
+	if err := scanner.Err(); err != nil {
+		panic(err)
+	}
+
 	mergeLocalMap(localMap, sMap)
 }
 
-// mergeLocalMap merges a local map of station data into the global StationMap.
+// mergeLocalMap merges local station data into the global StationMap.
 func mergeLocalMap(localMap map[string]*StationData, sm *StationMap) {
 	for station, data := range localMap {
 		shard := sm.GetShard(station)
@@ -151,7 +175,7 @@ func mergeLocalMap(localMap map[string]*StationData, sm *StationMap) {
 	}
 }
 
-// processLine processes a single line of input and updates the local map.
+// processLine processes a single line of the file.
 func processLine(line string, localMap map[string]*StationData) {
 	parts := strings.SplitN(line, ";", 2)
 	if len(parts) != 2 {
@@ -180,7 +204,7 @@ func processLine(line string, localMap map[string]*StationData) {
 	}
 }
 
-// printResults prints the aggregated results from the StationMap.
+// printResults outputs the aggregated station data.
 func printResults(sm *StationMap) {
 	consolidatedData := make(map[string]*StationData)
 	for _, shard := range sm.shards {

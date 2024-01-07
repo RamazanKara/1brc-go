@@ -28,8 +28,6 @@ Processing Time: 6m53s. Tested with a Ryzen 5800x3d
 
 Version 2.0 of the One Billion Row Challenge Processor introduces significant optimizations, leading to a substantial reduction in processing time. This release focuses on enhancing concurrency handling and reducing contention, along with other performance improvements.
 
-## Performance Enhancements
-
 - **Concurrent Map Implementation:** Introduced a sharded concurrent map to reduce lock contention. This allows for more efficient updates to the data structure in a multi-threaded environment.
 - **Hash-Based Sharding:** Implemented hash-based sharding for distributing data across multiple shards, further reducing the chance of lock conflicts.
 - **Optimized String Processing:** Refined the string handling logic to minimize overhead during file parsing.
@@ -40,13 +38,20 @@ Processing Time 5m19s. Tested with a Ryzen 5800x3d
 
 ## v3.0.0
 
-## Key Enhancements
-
 - **Parallel File Processing:** Implemented an advanced parallel processing approach where the input file is divided into chunks and processed independently in parallel, drastically reducing I/O bottleneck.
 - **Optimized Memory Management:** Refined memory usage by processing data in chunks and employing local maps for data aggregation to reduce memory overhead.
 - **Improved Data Aggregation:** Enhanced the efficiency of data aggregation through the use of sharded data structures, minimizing lock contention.
 
 Processing Time: 1m3s. Tested with a Ryzen 5800x3d and 32 gigs Ram
+
+## v3.1.0
+
+- **Reduced Calls to global map**
+- **Implemented a function to determine chunk bounds**
+
+Processing Time: 59.6s. Tested with a Ryzen 5800x3d and 32 gigs Ram
+
+I got this down to 59 Seconds and achieved my goal of getting it to under 1 minute. I am pretty happy with that for a single day session of coding. Further improvements could be made, and if I would continue working on it I would probably directly use a syscall with mmap and use the 8-byte hash of id as a key for an unsafe maphash. And maybe write some tests.
 
 ## Requirements
 
