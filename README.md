@@ -75,16 +75,14 @@ I got this down to 59 Seconds and achieved my goal of getting it to under 1 minu
 ## Sample Output
 
 `
-{unak=38.8/38.8/38.8, Yuncheng=35.0/35.0/35.0, Yuncos=40.1/40.1/40.1, ...}
-Processing completed in 9m1.812065864s
+{Tampa=-26.5/22.9/80.2, Tashkent=-35.5/14.8/67.7, Tauranga=-32.8/14.8/65.2, ...}
+Processing completed in 59.603095754s
 `
 
 ## Customization
 
 - You can modify the number of workers in the program to match your CPU's core count for optimal performance.
-- Adjust the file path in the program to point to your specific data file location.
 
 ## Notes
 
-- Performance may vary based on the hardware specifications and the size of the input file.
-- Ensure that the input file format is strictly adhered to for accurate results.
+- Performance may vary based on the hardware specifications
