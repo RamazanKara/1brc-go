@@ -53,6 +53,14 @@ Processing Time: 59.6s. Tested with a Ryzen 5800x3d and 32 gigs Ram
 
 I got this down to 59 Seconds and achieved my goal of getting it to under 1 minute. I am pretty happy with that for a single day session of coding. Further improvements could be made, and if I would continue working on it I would probably directly use a syscall with mmap and use the 8-byte hash of id as a key for an unsafe maphash. And maybe write some tests.
 
+## v3.2.0
+
+- **Memory-Mapped File Processing:** The program now uses `mmap` for file I/O operations, allowing the operating system to handle file paging and reducing overhead.
+- **Read-Write Locks:** Replaced `sync.Mutex` with `sync.RWMutex` in the `Shard` struct to reduce lock contention and allow multiple readers concurrently.
+- **Optimized Chunk Boundary Determination:** Improved the `determineChunkBounds` function to minimize the number of file seeks and scans, using a more efficient method to find the actual start and end of chunks.
+
+Processing Time: 55.2s. Tested with a Ryzen 5800x3d and 32 gigs Ram
+
 ## Requirements
 
 - Go Runtime ofc (1.21)
@@ -76,7 +84,7 @@ I got this down to 59 Seconds and achieved my goal of getting it to under 1 minu
 
 `
 {Tampa=-26.5/22.9/80.2, Tashkent=-35.5/14.8/67.7, Tauranga=-32.8/14.8/65.2, ...}
-Processing completed in 59.603095754s
+Processing completed in 55.2s
 `
 
 ## Customization
@@ -86,3 +94,17 @@ Processing completed in 59.603095754s
 ## Notes
 
 - Performance may vary based on the hardware specifications
+
+## Optimizations
+
+### Memory-Mapped File Processing
+
+The program now uses `mmap` for file I/O operations. This allows the operating system to handle file paging, which can significantly reduce the overhead of file I/O operations, especially for large files.
+
+### Read-Write Locks
+
+The `Shard` struct now uses `sync.RWMutex` instead of `sync.Mutex`. This change allows multiple readers to access the data concurrently, reducing lock contention and improving performance when multiple goroutines are reading from the same shard.
+
+### Optimized Chunk Boundary Determination
+
+The `determineChunkBounds` function has been improved to minimize the number of file seeks and scans. This optimization uses a more efficient method to find the actual start and end of chunks, reducing the time spent on determining chunk boundaries.
