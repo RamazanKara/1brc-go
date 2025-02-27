@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -81,11 +80,11 @@ func processFile(fileName string) *StationMap {
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func(chunkStart int64) {
+		go func(chunkStart int) {
 			defer wg.Done()
-			actualStart, actualEnd := determineChunkBounds(reader, chunkStart, chunkSize)
+			actualStart, actualEnd := determineChunkBounds(reader, chunkStart, int(chunkSize))
 			processChunk(reader, actualStart, actualEnd, sMap)
-		}(int64(i) * chunkSize)
+		}(int(i) * int(chunkSize))
 	}
 
 	wg.Wait()
@@ -93,8 +92,8 @@ func processFile(fileName string) *StationMap {
 }
 
 // determineChunkBounds calculates the actual boundaries of a file chunk.
-func determineChunkBounds(reader *mmap.ReaderAt, chunkStart, chunkSize int64) (int64, int64) {
-	var actualStart, actualEnd int64
+func determineChunkBounds(reader *mmap.ReaderAt, chunkStart, chunkSize int) (int, int) {
+	var actualStart, actualEnd int
 
 	if chunkStart != 0 {
 		actualStart = chunkStart
@@ -108,7 +107,7 @@ func determineChunkBounds(reader *mmap.ReaderAt, chunkStart, chunkSize int64) (i
 	}
 
 	actualEnd = chunkStart + chunkSize
-	for actualEnd < int64(reader.Len()) {
+	for actualEnd < int(reader.Len()) {
 		if reader.At(actualEnd) == '\n' {
 			actualEnd++
 			break
@@ -120,16 +119,16 @@ func determineChunkBounds(reader *mmap.ReaderAt, chunkStart, chunkSize int64) (i
 }
 
 // processChunk handles the processing of a specific file chunk.
-func processChunk(reader *mmap.ReaderAt, start, end int64, sMap *StationMap) {
+func processChunk(reader *mmap.ReaderAt, start, end int, sMap *StationMap) {
 	localMap := make(map[string]*StationData)
 
-	var currentPos int64 = start
+	var currentPos int = start
 	for currentPos < end {
 		line, err := readLine(reader, currentPos, end)
 		if err != nil {
 			panic(err)
 		}
-		currentPos += int64(len(line) + 1)
+		currentPos += int(len(line) + 1)
 
 		processLine(strings.TrimSpace(line), localMap)
 	}
@@ -138,7 +137,7 @@ func processChunk(reader *mmap.ReaderAt, start, end int64, sMap *StationMap) {
 }
 
 // readLine reads a line from the memory-mapped file.
-func readLine(reader *mmap.ReaderAt, start, end int64) (string, error) {
+func readLine(reader *mmap.ReaderAt, start, end int) (string, error) {
 	var line []byte
 	for start < end {
 		b := reader.At(start)
