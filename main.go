@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"golang.org/x/exp/mmap"
 )
 
 // StationData holds the temperature data for a specific station.
@@ -25,7 +25,7 @@ const (
 // Shard represents a concurrent-safe structure holding station data.
 type Shard struct {
 	data map[string]*StationData
-	lock sync.Mutex
+	lock sync.RWMutex
 }
 
 // StationMap aggregates multiple shards for station data.
@@ -67,35 +67,24 @@ func main() {
 
 // processFile handles the file processing and returns a StationMap.
 func processFile(fileName string) *StationMap {
-	file, err := os.Open(fileName)
+	reader, err := mmap.Open(fileName)
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	defer reader.Close()
 
-	fileInfo, err := file.Stat()
-	if err != nil {
-		panic(err)
-	}
-
-	fileSize := fileInfo.Size()
+	fileSize := int64(reader.Len())
 	chunkSize := fileSize / int64(numWorkers)
 	sMap := NewStationMap()
 	var wg sync.WaitGroup
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func(chunkStart int64) {
+		go func(chunkStart int) {
 			defer wg.Done()
-			f, err := os.Open(fileName)
-			if err != nil {
-				panic(err)
-			}
-			defer f.Close()
-
-			actualStart, actualEnd := determineChunkBounds(f, chunkStart, chunkSize)
-			processChunk(f, actualStart, actualEnd, sMap)
-		}(int64(i) * chunkSize)
+			actualStart, actualEnd := determineChunkBounds(reader, chunkStart, int(chunkSize))
+			processChunk(reader, actualStart, actualEnd, sMap)
+		}(int(i) * int(chunkSize))
 	}
 
 	wg.Wait()
@@ -103,59 +92,62 @@ func processFile(fileName string) *StationMap {
 }
 
 // determineChunkBounds calculates the actual boundaries of a file chunk.
-func determineChunkBounds(f *os.File, chunkStart, chunkSize int64) (int64, int64) {
-	var actualStart, actualEnd int64
+func determineChunkBounds(reader *mmap.ReaderAt, chunkStart, chunkSize int) (int, int) {
+	var actualStart, actualEnd int
 
 	if chunkStart != 0 {
-		_, err := f.Seek(chunkStart, 0)
-		if err != nil {
-			panic(err)
+		actualStart = chunkStart
+		for actualStart < chunkStart+chunkSize {
+			if reader.At(actualStart) == '\n' {
+				actualStart++
+				break
+			}
+			actualStart++
 		}
-
-		scanner := bufio.NewScanner(f)
-		scanner.Scan()
-		actualStart = chunkStart + int64(len(scanner.Bytes())) + 1
 	}
 
-	_, err := f.Seek(chunkStart+chunkSize, 0)
-	if err != nil {
-		panic(err)
+	actualEnd = chunkStart + chunkSize
+	for actualEnd < int(reader.Len()) {
+		if reader.At(actualEnd) == '\n' {
+			actualEnd++
+			break
+		}
+		actualEnd++
 	}
-
-	scanner := bufio.NewScanner(f)
-	scanner.Scan()
-	actualEnd = chunkStart + chunkSize + int64(len(scanner.Bytes())) + 1
 
 	return actualStart, actualEnd
 }
 
 // processChunk handles the processing of a specific file chunk.
-func processChunk(f *os.File, start, end int64, sMap *StationMap) {
-	_, err := f.Seek(start, 0)
-	if err != nil {
-		panic(err)
-	}
-
-	scanner := bufio.NewScanner(f)
+func processChunk(reader *mmap.ReaderAt, start, end int, sMap *StationMap) {
 	localMap := make(map[string]*StationData)
 
-	var currentPos int64 = start
-	for scanner.Scan() {
-		line := scanner.Text()
-		currentPos += int64(len(line) + 1)
-
-		if currentPos > end {
-			break
+	var currentPos int = start
+	for currentPos < end {
+		line, err := readLine(reader, currentPos, end)
+		if err != nil {
+			panic(err)
 		}
+		currentPos += int(len(line) + 1)
 
 		processLine(strings.TrimSpace(line), localMap)
 	}
 
-	if err := scanner.Err(); err != nil {
-		panic(err)
-	}
-
 	mergeLocalMap(localMap, sMap)
+}
+
+// readLine reads a line from the memory-mapped file.
+func readLine(reader *mmap.ReaderAt, start, end int) (string, error) {
+	var line []byte
+	for start < end {
+		b := reader.At(start)
+		if b == '\n' {
+			break
+		}
+		line = append(line, b)
+		start++
+	}
+	return string(line), nil
 }
 
 // mergeLocalMap merges local station data into the global StationMap.
@@ -208,11 +200,11 @@ func processLine(line string, localMap map[string]*StationData) {
 func printResults(sm *StationMap) {
 	consolidatedData := make(map[string]*StationData)
 	for _, shard := range sm.shards {
-		shard.lock.Lock()
+		shard.lock.RLock()
 		for station, data := range shard.data {
 			consolidatedData[station] = data
 		}
-		shard.lock.Unlock()
+		shard.lock.RUnlock()
 	}
 
 	var keys []string

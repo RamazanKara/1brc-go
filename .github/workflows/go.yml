@@ -19,7 +19,24 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'
+        go-version: '1.21.5'
+
+    - name: Verify file paths
+      run: |
+        if [ ! -f ./main.go ]; then
+          echo "Error: main.go not found"
+          exit 1
+        fi
+        if [ ! -f ./data/weather_stations.csv ]; then
+          echo "Error: data/weather_stations.csv not found"
+          exit 1
+        fi
 
     - name: Run
       run: go run ./main.go ./data/weather_stations.csv
+
+    - name: Display working directory
+      run: ls -la
+
+    - name: Display go run output
+      run: go run ./main.go ./data/weather_stations.csv || true
